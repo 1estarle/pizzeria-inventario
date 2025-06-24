@@ -1,180 +1,225 @@
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
-from tkinter import filedialog, messagebox, Toplevel
-from PIL import Image, ImageTk
+from tkinter import Toplevel, Label, Entry, Button, messagebox, filedialog
+from PIL import Image, ImageTk, UnidentifiedImageError
+from db import obtener_productos, agregar_producto_db, actualizar_cantidad, eliminar_producto_db, actualizar_imagen
 import os
-import json
-import shutil
-
-ASSETS_DIR = "assets"
-INVENTARIO_PATH = "inventario.json"
-
-# Cargar y guardar inventario
-def cargar_inventario():
-    if os.path.exists(INVENTARIO_PATH):
-        with open(INVENTARIO_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    else:
-        return {
-            "Producto 1": {"cantidad": 10, "imagen": "producto1.png"},
-            "Producto 2": {"cantidad": 15, "imagen": "producto2.png"},
-            "Producto 3": {"cantidad": 8, "imagen": "producto3.png"},
-        }
-
-def guardar_inventario():
-    with open(INVENTARIO_PATH, "w", encoding="utf-8") as f:
-        json.dump(inventario, f, ensure_ascii=False, indent=2)
-
-inventario = cargar_inventario()
+import datetime
 
 def iniciar_app():
-    app = tb.Window(themename="flatly")  # Puedes cambiar el tema aquí
-    app.title("Gestión de Inventario - Pizzería")
-    app.geometry("1000x700")
+    app = tb.Window(themename="flatly")
+    app.title("Inventario Pizzería")
+    app.geometry("900x600")
 
-    # Barra superior
-    topbar = tb.Frame(app, bootstyle=PRIMARY)
-    topbar.pack(fill=X)
+    topbar = tb.Frame(app, bootstyle="primary")
+    topbar.pack(side=TOP, fill=X)
 
-    tb.Label(topbar, text="Gestión de Inventario MUT", font=("Segoe UI", 18, "bold"),
-             bootstyle="inverse").pack(side=LEFT, padx=20, pady=15)
+    titulo = tb.Label(topbar, text="Inventario Pizzería", font=("Segoe UI", 18, "bold"), foreground="white", bootstyle="inverse-primary")
+    titulo.pack(side=LEFT, padx=20, pady=10)
 
-    tb.Button(topbar, text="Agregar producto", bootstyle=SUCCESS, command=lambda: agregar_producto(app)).pack(side=RIGHT, padx=20, pady=10)
+    btn_agregar = tb.Button(topbar, text="Agregar Producto", bootstyle="success", command=lambda: agregar_producto())
+    btn_agregar.pack(side=RIGHT, padx=10)
 
-    # Notebook para pestañas
-    notebook = tb.Notebook(app)
-    notebook.pack(fill=BOTH, expand=True, padx=20, pady=20)
+    frame_productos = tb.Frame(app)
+    frame_productos.pack(fill=BOTH, expand=True, padx=10, pady=10)
 
-    frame_inventario = tb.Frame(notebook)
-    notebook.add(frame_inventario, text="Inventario")
+    frame_busqueda = tb.Frame(app)
+    frame_busqueda.pack(fill=X, padx=10, pady=5)
 
-    frame_productos = tb.Frame(frame_inventario)
-    frame_productos.pack(pady=10)
+    tb.Label(frame_busqueda, text="Buscar:").pack(side=LEFT, padx=5)
+    entry_buscar = tb.Entry(frame_busqueda, width=30)
+    entry_buscar.insert(0, "Nombre del producto")
+    entry_buscar.pack(side=LEFT, padx=5)
 
-    frame_tabla = tb.Frame(frame_inventario)
-    frame_tabla.pack(fill=BOTH, expand=True, padx=10, pady=10)
+    frame_listado = tb.Frame(app)
+    frame_listado.pack(fill=BOTH, expand=True, padx=10, pady=5)
 
-    tabla = tb.Treeview(frame_tabla, columns=("Producto", "Cantidad"), show="headings", bootstyle="info")
-    tabla.heading("Producto", text="Producto")
-    tabla.heading("Cantidad", text="Cantidad")
-    tabla.column("Producto", width=300, anchor="center")
-    tabla.column("Cantidad", width=100, anchor="center")
-    tabla.pack(fill=BOTH, expand=True)
+    columnas = ("Nombre", "Cantidad", "Última Modificación")
+    inventario_total = tb.Treeview(frame_listado, columns=columnas, show="headings")
 
-    def actualizar_tabla():
-        for i in tabla.get_children():
-            tabla.delete(i)
-        for nombre, datos in inventario.items():
-            tabla.insert("", "end", values=(nombre, datos["cantidad"]))
+    for col in columnas:
+        inventario_total.heading(col, text=col)
 
-    def guardar_cambio(nombre, nueva_cantidad):
-        inventario[nombre]["cantidad"] = nueva_cantidad
-        guardar_inventario()
-        actualizar_tabla()
-        render_productos()
+    inventario_total.column("Nombre", width=200, anchor="center")
+    inventario_total.column("Cantidad", width=100, anchor="center")
+    inventario_total.column("Última Modificación", width=200, anchor="center")
 
-    def eliminar_producto(nombre, ventana):
-        if messagebox.askyesno("Confirmar", f"¿Eliminar '{nombre}' del inventario?"):
-            inventario.pop(nombre, None)
-            guardar_inventario()
-            actualizar_tabla()
-            render_productos()
-            ventana.destroy()
+    inventario_total.pack(fill=X, padx=10, pady=5)
 
-    def modificar_producto(nombre):
+    def refrescar_productos(filtro=""):
+        for widget in frame_productos.winfo_children():
+            widget.destroy()
+
+        productos = obtener_productos()
+
+        if filtro and filtro != "Nombre del producto":
+            productos = [p for p in productos if filtro.lower() in p[0].lower()]
+
+        if not productos:
+            lbl_vacio = tb.Label(frame_productos, text="No hay productos cargados", font=("Segoe UI", 14), bootstyle="warning")
+            lbl_vacio.pack(pady=20)
+            actualizar_tabla_total(productos)
+            return
+
+        for idx, (nombre, cantidad, imagen, fecha_mod) in enumerate(productos):
+            frame = tb.Frame(frame_productos, relief=SOLID, borderwidth=1)
+            frame.grid(row=idx//4, column=idx%4, padx=10, pady=10)
+
+            if imagen and os.path.exists(imagen):
+                try:
+                    img_pil = Image.open(imagen)
+                    img_pil = img_pil.resize((100, 100))
+                    img = ImageTk.PhotoImage(img_pil)
+                    lbl_img = Label(frame, image=img)
+                    lbl_img.image = img
+                    lbl_img.pack()
+                except (UnidentifiedImageError, Exception):
+                    lbl_error = tb.Label(frame, text="Imagen inválida", bootstyle="danger")
+                    lbl_error.pack()
+
+            lbl_nombre = tb.Label(frame, text=nombre, font=("Segoe UI", 12, "bold"))
+            lbl_nombre.pack(pady=5)
+
+            lbl_cantidad = tb.Label(frame, text=f"Stock: {cantidad}", bootstyle="info")
+            lbl_cantidad.pack(pady=2)
+
+            btn_modificar = tb.Button(frame, text="Modificar", bootstyle="secondary", command=lambda n=nombre: abrir_modificar(n))
+            btn_modificar.pack(pady=2)
+
+            btn_img = tb.Button(frame, text="Cambiar Imagen", bootstyle="info", command=lambda n=nombre: cambiar_imagen(n))
+            btn_img.pack(pady=2)
+
+            btn_eliminar = tb.Button(frame, text="Eliminar", bootstyle="danger", command=lambda n=nombre: eliminar_producto(n))
+            btn_eliminar.pack(pady=2)
+
+        actualizar_tabla_total(productos)
+
+    def actualizar_tabla_total(productos):
+        for row in inventario_total.get_children():
+            inventario_total.delete(row)
+
+        for nombre, cantidad, _, fecha_mod in productos:
+            inventario_total.insert('', END, values=(nombre, cantidad, fecha_mod))
+
+    def abrir_modificar(nombre):
         top = Toplevel(app)
         top.title(f"Modificar {nombre}")
-        top.geometry("320x270")
-        top.resizable(False, False)
+        top.geometry("300x150")
 
-        cantidad_actual = inventario[nombre]["cantidad"]
+        productos = dict((p[0], p[1]) for p in obtener_productos())
+
+        cantidad_actual = productos[nombre]
         cantidad_temp = tb.IntVar(value=cantidad_actual)
 
-        tb.Label(top, text=nombre, font=("Segoe UI", 14, "bold")).pack(pady=10)
+        tb.Label(top, text="Cantidad actual:").pack(pady=5)
 
-        f = tb.Frame(top)
-        f.pack(pady=10)
+        contenedor = tb.Frame(top)
+        contenedor.pack(pady=5)
 
-        tb.Button(f, text="-", width=4, bootstyle=DANGER, command=lambda: cantidad_temp.set(max(0, cantidad_temp.get() - 1))).pack(side=LEFT, padx=10)
-        tb.Label(f, textvariable=cantidad_temp, font=("Segoe UI", 14), width=5).pack(side=LEFT)
-        tb.Button(f, text="+", width=4, bootstyle=SUCCESS, command=lambda: cantidad_temp.set(cantidad_temp.get() + 1)).pack(side=LEFT, padx=10)
+        def disminuir():
+            if cantidad_temp.get() > 0:
+                cantidad_temp.set(cantidad_temp.get() - 1)
 
-        tb.Button(top, text="Guardar cambios", width=20, bootstyle=PRIMARY,
-                  command=lambda: [guardar_cambio(nombre, cantidad_temp.get()), top.destroy()]).pack(pady=10)
+        def aumentar():
+            cantidad_temp.set(cantidad_temp.get() + 1)
 
-        tb.Button(top, text="Eliminar producto", width=20, bootstyle=DANGER,
-                  command=lambda: eliminar_producto(nombre, top)).pack(pady=5)
+        btn_menos = tb.Button(contenedor, text="-", bootstyle="danger", command=disminuir)
+        btn_menos.pack(side=LEFT, padx=5)
 
-    def agregar_producto(parent):
-        top = Toplevel(parent)
-        top.title("Agregar producto")
-        top.geometry("400x300")
-        top.resizable(False, False)
+        tb.Entry(contenedor, textvariable=cantidad_temp, width=10, justify="center").pack(side=LEFT)
 
-        nombre_var = tb.StringVar()
-        cantidad_var = tb.IntVar()
-        imagen_path = tb.StringVar()
-
-        tb.Label(top, text="Nombre del producto:").pack(pady=(15, 0))
-        tb.Entry(top, textvariable=nombre_var, width=30).pack()
-
-        tb.Label(top, text="Cantidad inicial:").pack(pady=(10, 0))
-        tb.Entry(top, textvariable=cantidad_var, width=10).pack()
-
-        def seleccionar_imagen():
-            file = filedialog.askopenfilename(filetypes=[("PNG Images", "*.png"), ("All", "*.*")])
-            if file:
-                imagen_path.set(file)
-
-        tb.Button(top, text="Seleccionar imagen", bootstyle=INFO, command=seleccionar_imagen).pack(pady=10)
+        btn_mas = tb.Button(contenedor, text="+", bootstyle="success", command=aumentar)
+        btn_mas.pack(side=LEFT, padx=5)
 
         def guardar():
-            nombre = nombre_var.get().strip()
-            cantidad = cantidad_var.get()
-            img_src = imagen_path.get()
-
-            if not nombre or cantidad < 0 or not img_src:
-                messagebox.showerror("Error", "Completa todos los campos.")
-                return
-
-            if not os.path.exists(ASSETS_DIR):
-                os.makedirs(ASSETS_DIR)
-
-            img_name = os.path.basename(img_src)
-            shutil.copy(img_src, os.path.join(ASSETS_DIR, img_name))
-
-            inventario[nombre] = {"cantidad": cantidad, "imagen": img_name}
-            guardar_inventario()
-            actualizar_tabla()
-            render_productos()
+            actualizar_cantidad(nombre, cantidad_temp.get())
             top.destroy()
+            refrescar_productos(entry_buscar.get())
 
-        tb.Button(top, text="Agregar producto", bootstyle=SUCCESS, command=guardar, width=20).pack(pady=15)
+        tb.Button(top, text="Guardar", bootstyle="primary", command=guardar).pack(pady=10)
 
-    def render_productos():
-        for w in frame_productos.winfo_children():
-            w.destroy()
+    def cambiar_imagen(nombre):
+        top = Toplevel(app)
+        top.title(f"Cambiar Imagen - {nombre}")
+        top.geometry("300x150")
 
-        for nombre, datos in inventario.items():
-            card = tb.Frame(frame_productos, borderwidth=1, relief="solid", padding=10)
-            card.pack(side=tb.LEFT, padx=10, pady=10)
+        def seleccionar_archivo():
+            archivo = filedialog.askopenfilename(title="Seleccionar imagen", filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.gif")])
+            if archivo:
+                entry_imagen.delete(0, END)
+                entry_imagen.insert(0, archivo)
 
-            img_path = os.path.join(ASSETS_DIR, datos["imagen"])
+        tb.Label(top, text="Nueva ruta de imagen:").pack(pady=5)
+        entry_imagen = tb.Entry(top)
+        entry_imagen.pack(pady=5)
+        tb.Button(top, text="Buscar", bootstyle="info", command=seleccionar_archivo).pack(pady=5)
+
+        def guardar():
+            nueva_imagen = entry_imagen.get()
+            if not os.path.exists(nueva_imagen):
+                messagebox.showerror("Error", "La ruta no existe")
+                return
             try:
-                img = Image.open(img_path).resize((100, 100))
-                img_tk = ImageTk.PhotoImage(img)
-                lbl_img = tb.Label(card, image=img_tk)
-                lbl_img.image = img_tk
-                lbl_img.pack()
-            except:
-                tb.Label(card, text="[Sin imagen]").pack()
+                Image.open(nueva_imagen)
+            except (UnidentifiedImageError, Exception):
+                messagebox.showerror("Error", "El archivo no es una imagen válida")
+                return
+            actualizar_imagen(nombre, nueva_imagen)
+            top.destroy()
+            refrescar_productos(entry_buscar.get())
 
-            tb.Label(card, text=nombre, font=("Segoe UI", 11, "bold")).pack(pady=(5, 0))
-            tb.Label(card, text=f"Cantidad: {datos['cantidad']}", font=("Segoe UI", 10)).pack()
+        tb.Button(top, text="Guardar", bootstyle="primary", command=guardar).pack(pady=10)
 
-            tb.Button(card, text="Modificar", bootstyle=PRIMARY, width=15,
-                      command=lambda n=nombre: modificar_producto(n)).pack(pady=5)
+    def eliminar_producto(nombre):
+        confirm = messagebox.askyesno("Confirmar", f"¿Estás seguro de eliminar '{nombre}'?")
+        if confirm:
+            eliminar_producto_db(nombre)
+            refrescar_productos(entry_buscar.get())
 
-    render_productos()
-    actualizar_tabla()
+    def agregar_producto():
+        top = Toplevel(app)
+        top.title("Agregar Producto")
+        top.geometry("300x300")
+
+        tb.Label(top, text="Nombre:").pack(pady=5)
+        entry_nombre = tb.Entry(top)
+        entry_nombre.pack(pady=5)
+
+        tb.Label(top, text="Cantidad inicial:").pack(pady=5)
+        entry_cantidad = tb.Entry(top)
+        entry_cantidad.pack(pady=5)
+
+        tb.Label(top, text="Ruta de imagen:").pack(pady=5)
+        entry_imagen = tb.Entry(top)
+        entry_imagen.pack(pady=5)
+
+        def seleccionar_archivo():
+            archivo = filedialog.askopenfilename(title="Seleccionar imagen", filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.gif")])
+            if archivo:
+                entry_imagen.delete(0, END)
+                entry_imagen.insert(0, archivo)
+
+        tb.Button(top, text="Buscar", bootstyle="info", command=seleccionar_archivo).pack(pady=5)
+
+        def guardar():
+            try:
+                nombre = entry_nombre.get()
+                cantidad = int(entry_cantidad.get())
+                imagen = entry_imagen.get()
+                if not os.path.exists(imagen):
+                    messagebox.showerror("Error", "La ruta no existe")
+                    return
+                Image.open(imagen)
+                agregar_producto_db(nombre, cantidad, imagen)
+                top.destroy()
+                refrescar_productos(entry_buscar.get())
+            except (UnidentifiedImageError, Exception):
+                messagebox.showerror("Error", "El archivo no es una imagen válida")
+
+        tb.Button(top, text="Guardar", bootstyle="primary", command=guardar).pack(pady=10)
+
+    entry_buscar.bind("<KeyRelease>", lambda e: refrescar_productos(entry_buscar.get()))
+
+    refrescar_productos()
+
     app.mainloop()

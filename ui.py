@@ -9,8 +9,6 @@ from datetime import datetime
 import openpyxl
 from openpyxl.utils import get_column_letter
 
-ASSETS_PATH = "assets/img"
-
 
 def iniciar_app():
     app = tb.Window(themename="flatly")
@@ -91,9 +89,6 @@ def iniciar_app():
     inventario_total.column("Última Modificación", width=200, anchor="center")
 
     inventario_total.pack(fill=BOTH, expand=True, padx=10, pady=5)
-
-    icon_amarillo = ImageTk.PhotoImage(Image.open(os.path.join(ASSETS_PATH, "amarillo.png")).resize((15, 15)))
-    icon_rojo = ImageTk.PhotoImage(Image.open(os.path.join(ASSETS_PATH, "rojo.png")).resize((15, 15)))
 
     def refrescar_tabla():
         for row in inventario_total.get_children():

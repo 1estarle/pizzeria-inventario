@@ -9,6 +9,8 @@ from datetime import datetime
 import openpyxl
 from openpyxl.utils import get_column_letter
 
+ASSETS_PATH = "assets/img"
+
 
 def iniciar_app():
     app = tb.Window(themename="flatly")
@@ -156,6 +158,8 @@ def iniciar_app():
         top = Toplevel(app)
         top.title(f"Modificar {nombre}")
         top.geometry("300x150")
+        top.transient(app)
+        top.grab_set()
 
         productos = dict((p[0], p[1]) for p in obtener_productos())
         cantidad_actual = productos[nombre]
@@ -175,6 +179,8 @@ def iniciar_app():
         top = Toplevel(app)
         top.title(f"Cambiar Imagen - {nombre}")
         top.geometry("300x150")
+        top.transient(app)
+        top.grab_set()
 
         def seleccionar():
             archivo = filedialog.askopenfilename(title="Seleccionar imagen", filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.gif")])
@@ -204,6 +210,8 @@ def iniciar_app():
         top = Toplevel(app)
         top.title("Agregar Producto")
         top.geometry("300x300")
+        top.transient(app)
+        top.grab_set()
 
         tb.Label(top, text="Nombre:").pack(pady=5)
         entry_nombre = tb.Entry(top)
